@@ -1,0 +1,7 @@
+.superpowers/
+__pycache__/
+.pytest_cache/
+docs/superpowers/
+CLAUDE.md
+tools/sonda_ancho.py
+docs/*.md

@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = ["rendimiento: mide tiempos reales; excluir con -m 'not rendimiento'"]
