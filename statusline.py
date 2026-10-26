@@ -33,7 +33,33 @@ PALETA: dict[str, str] = {
     "bien": "#0ca30c",
     "aviso": "#fab219",
     "critico": "#d03b3b",
+    "ritmo bajo": "#4c8fe8",
+    # Anthropic no le asigna color a cada modelo (la paleta de marca tiene un solo acento naranja, que es el de Clawd):
+    # tonos propios, lejos de los del ritmo. Nunca van dos juntos, así que sólo importa el contraste.
+    "modelo opus": "#b48ef0",
+    "modelo sonnet": "#3ec6d6",
+    "modelo haiku": "#f08cb8",
+    "modelo fable": "#e8975a",
 }
+# El esfuerzo lleva el color de su modelo, más intenso cuanto más alto: `max` es el color del modelo tal cual y los
+# de abajo se lo mezclan con un gris claro, que baja la saturación sin mover el tono. Se generan una sola vez para que
+# PALETA siga siendo la única tabla de colores: "esfuerzo <familia> <nivel>", y "esfuerzo <nivel>" para un modelo
+# sin familia conocida, sobre el texto principal.
+NIVELES_ESFUERZO = ("low", "medium", "high", "xhigh", "max")
+_PROPORCION_DEL_MODELO = (0.30, 0.48, 0.66, 0.83, 1.0)
+_GRIS_PALIDO = "#e6e6e6"
+
+
+def _mezcla(hexa: str, otro: str, t: float) -> str:
+    """t partes de hexa y (1 - t) de otro, canal por canal."""
+    canales = (round(int(hexa[i:i + 2], 16) * t + int(otro[i:i + 2], 16) * (1 - t)) for i in (1, 3, 5))
+    return "#" + "".join(f"{c:02x}" for c in canales)
+
+
+for _base in [t for t in PALETA if t.startswith("modelo ")] + ["texto principal"]:
+    _prefijo = "esfuerzo " + (_base[len("modelo "):] + " " if _base.startswith("modelo ") else "")
+    for _nivel, _t in zip(NIVELES_ESFUERZO, _PROPORCION_DEL_MODELO):
+        PALETA[_prefijo + _nivel] = _mezcla(PALETA[_base], _GRIS_PALIDO, _t)
 
 Celda = tuple[str, str]  # (carácter, token)
 Fila = list[Celda]
@@ -137,8 +163,9 @@ class _Registro:
 
 
 class Ventana(_Registro):
-    """pct: float; reinicio: float | None (epoch segundos)."""
-    _campos = (("pct", _REQUERIDO), ("reinicio", _REQUERIDO))
+    """pct: float; reinicio: float | None (epoch segundos); esperado: float | None (el % que tocaría llevar a esta
+    hora); fraccion: float | None (la parte de la ventana ya transcurrida, 0-1). Los dos últimos los pone poner_ritmo."""
+    _campos = (("pct", _REQUERIDO), ("reinicio", _REQUERIDO), ("esperado", None), ("fraccion", None))
 
 
 class Entrada(_Registro):
@@ -303,6 +330,8 @@ class Actividad(_Registro):
         ("herramienta", None),              # str | None
         ("amigos", list),                   # list[Amigo], nueva por instancia
         ("rama", None),                     # str | None
+        ("scripts", 0),                     # int: Bash de fondo vivos
+        ("monitores", 0),                   # int: Monitor vivos
     )
 
 
@@ -607,16 +636,45 @@ def _texto_de_notificacion(o: dict) -> str:
 # 511 notificaciones reales) en los SEGUNDOS_MUDO durante los que todavía hace falta. Con 64 KB sigue visible
 # el 2%; con 1 MB, el 99%. Cuesta 0,93 ms porque son líneas chicas y el substring las filtra antes del JSON.
 VENTANA_NOTIFICACIONES = 1_048_576
-MARCA_NOTIFICACION = b"<status>completed</status>"
+# Los tres estados con los que termina algo de fondo (medidos el 2026-10-25 en 2.1.310). Un agente que falla
+# notifica `failed` («Agent terminated») y no vuelve a escribir; antes sólo `completed` apagaba el escritorio.
+ESTADOS_FINALES = ("completed", "failed", "killed")
+MARCAS_AVISO = (b"<task-notification>", b'"backgroundTaskId"', b'"timeoutMs"')
+RE_TIMESTAMP = re.compile(rb'"timestamp":\s*"([^"]+)"')
 # Para saber si un amigo está parado alcanza con su última entrada, que es un bloque de texto chico; si una
 # línea gigante se comiera la ventana, `leer_cola` devuelve vacío y el amigo se queda, que es el lado seguro.
 VENTANA_ULTIMA_ENTRADA = 65_536
 
 
-def notificaciones(ruta: str) -> dict[str, float]:
-    """agentId -> instante de la última notificación `completed`, el fin fino de un subagente. Sin esto el
-    escritorio queda encendido hasta que el silencio lo apague: reproduciendo las sesiones reales daba 2 a 3
-    escritorios de más por instante, con la oficina llena de amigos que ya se habían ido."""
+class Avisos(_Registro):
+    """Lo que el transcript principal dice de lo que corre de fondo, leído en una sola pasada de su cola."""
+    _campos = (
+        ("fines", dict),                    # dict[str, float]: agentId -> última notificación final
+        ("fines_tareas", dict),             # dict[str, float]: taskId de script/monitor -> su notificación final
+        ("arranques", dict),                # dict[str, tuple[str, float, float | None]]: taskId -> (tipo, ts, vence)
+        ("con_eventos", dict),              # dict[str, float]: taskId de los monitores que emitieron eventos
+        ("inicio", 0.0),                    # float: timestamp de la primera línea vista; 0 si se vio el archivo entero
+    )
+
+
+def _arranque(o: dict) -> tuple[str, str, float | None] | None:
+    """(taskId, tipo, vence) si la entrada es el `tool_result` con el que nace una tarea de fondo."""
+    r = o.get("toolUseResult") if o.get("type") == "user" else None
+    if not isinstance(r, dict):
+        return None
+    if r.get("backgroundTaskId"):
+        return str(r["backgroundTaskId"]), "script", None
+    if r.get("taskId") and "timeoutMs" in r:
+        ms = _num(r.get("timeoutMs"))
+        return str(r["taskId"]), "monitor", None if r.get("persistent") or not ms else ms / 1000
+    return None
+
+
+def leer_avisos(ruta: str) -> Avisos:
+    """Fines de amigos, arranques y fines de tareas de fondo, en la misma ventana de 1 MB. Sin el fin fino de un
+    subagente su escritorio queda encendido hasta que el silencio lo apague: reproduciendo las sesiones reales daba
+    2 a 3 escritorios de más por instante, con la oficina llena de amigos que ya se habían ido."""
+    av = Avisos()
     try:
         with open(ruta, "rb") as f:
             f.seek(0, os.SEEK_END)
@@ -624,25 +682,92 @@ def notificaciones(ruta: str) -> dict[str, float]:
             f.seek(inicio)
             datos = f.read()
     except OSError:
-        return {}
-    fin: dict[str, float] = {}
+        return av
     lineas = datos.split(b"\n")
     if inicio > 0:
         lineas = lineas[1:]  # la primera quedó cortada
+        for ln in lineas:
+            m = RE_TIMESTAMP.search(ln)
+            if m:
+                av.inicio = _ts({"timestamp": m.group(1).decode("utf-8", "replace")}) or 1.0
+                break
     for ln in lineas:
-        if MARCA_NOTIFICACION not in ln:
+        if not any(marca in ln for marca in MARCAS_AVISO):
             continue
         try:
             o = json.loads(ln)
         except ValueError:
             continue
-        c = _texto_de_notificacion(o) if isinstance(o, dict) else ""
-        if not c:
+        if not isinstance(o, dict):
             continue
-        m, estado = RE_NOTIFICACION_ID.search(c), RE_NOTIFICACION_ESTADO.search(c)
-        if m and estado and estado.group(1) == "completed":
-            fin[m.group(1)] = max(fin.get(m.group(1), 0.0), _ts(o))
-    return fin
+        ts = _ts(o)
+        arr = _arranque(o)
+        if arr is not None:
+            id_, tipo, dura = arr
+            av.arranques[id_] = (tipo, ts, None if dura is None else ts + dura)
+            continue
+        c = _texto_de_notificacion(o)
+        m = RE_NOTIFICACION_ID.search(c) if c else None
+        if not m:
+            continue
+        id_, estado = m.group(1), RE_NOTIFICACION_ESTADO.search(c)
+        if estado is None:
+            if "Monitor event" in c:
+                av.con_eventos[id_] = ts
+        elif estado.group(1) in ESTADOS_FINALES:
+            destino = av.fines_tareas if RE_ID_TAREA.fullmatch(id_) else av.fines
+            destino[id_] = max(destino.get(id_, 0.0), ts)
+    return av
+
+
+def notificaciones(ruta: str) -> dict[str, float]:
+    """agentId -> instante de la última notificación final de un subagente."""
+    return leer_avisos(ruta).fines
+
+
+# ── tareas de fondo: scripts y monitores ───────────────────────────────
+RE_ID_TAREA = re.compile(r"b[0-9a-z]{8}")  # los agentes son `a` + 16 hex: no entran
+SEGUNDOS_GRACIA_MONITOR = 60.0  # el aviso de vencimiento llega con algo de atraso respecto del timeout declarado
+
+
+def carpeta_tareas(ruta: str, session_id: str | None) -> str:
+    """Donde Claude Code deja la salida de cada tarea: <temp>/claude/<proyecto>/<sesión>/tasks. El <proyecto> es el
+    mismo nombre de carpeta que el del transcript (`E--AI-Claude-StatusBarDFR`)."""
+    base = os.environ.get("CLAUDE_CODE_TMPDIR") or os.environ.get("TEMP") or os.environ.get("TMP") or ""
+    return os.path.join(base, "claude", os.path.basename(os.path.dirname(ruta)), session_id or "", "tasks")
+
+
+def censar_tareas(av: Avisos, carpeta: str, ahora: float) -> tuple[int, int]:
+    """(scripts, monitores) vivos. El arranque se escribe una sola vez y se va quedando atrás, igual que el
+    despacho de un amigo, así que la carpeta de salidas completa el censo: una salida escrita DENTRO de la ventana
+    prueba que la tarea vivía entonces, y su fin, que viene después de su última escritura, estaría a la vista.
+
+    Sólo cuentan las salidas que nacieron ANTES de la ventana: cada Bash, también el de primer plano, crea su
+    `b*.output` mientras corre (medido el 2026-10-25) y lo borra al terminar. Una tarea de fondo nacida dentro de
+    la ventana ya está en `arranques`; lo que nació adentro y no está ahí es un comando de primer plano."""
+    vivas: dict[str, str] = {}
+    for id_, (tipo, _ts_arr, vence) in av.arranques.items():
+        if id_ in av.fines_tareas or (vence is not None and ahora > vence + SEGUNDOS_GRACIA_MONITOR):
+            continue
+        vivas[id_] = tipo
+    if av.inicio > 0:  # si se vio el archivo entero, todo arranque está en `arranques`
+        try:
+            entradas = list(os.scandir(carpeta))
+        except OSError:
+            entradas = []
+        for e in entradas:
+            id_ = e.name[: -len(".output")] if e.name.endswith(".output") else ""
+            if not RE_ID_TAREA.fullmatch(id_) or id_ in vivas or id_ in av.arranques or id_ in av.fines_tareas:
+                continue
+            try:
+                st = e.stat()
+            except OSError:
+                continue
+            nace = getattr(st, "st_birthtime", st.st_ctime)  # en Windows las dos son la creación
+            if nace < av.inicio <= st.st_mtime:
+                vivas[id_] = "monitor" if id_ in av.con_eventos else "script"
+    tipos = list(vivas.values())
+    return tipos.count("script"), tipos.count("monitor")
 
 
 def leer_actividad(ruta: str | None, session_id: str | None, ahora: float, contexto_total: int = 200_000) -> Actividad:
@@ -655,12 +780,14 @@ def leer_actividad(ruta: str | None, session_id: str | None, ahora: float, conte
     act.rama = a.rama
     if hay_compactacion(a, ahora, contexto_total):
         act.pose, act.leyenda, act.herramienta = COMPACTANDO, "", None
+    avisos = leer_avisos(ruta)
+    act.scripts, act.monitores = censar_tareas(avisos, carpeta_tareas(ruta, session_id), ahora)
     dir_sub = os.path.join(os.path.dirname(ruta), session_id or "", "subagents")
     amigos = censar_amigos(dir_sub, ahora)
     _sumar_los_del_transcript(amigos, a.despachos, dir_sub)
     if not amigos:
         return act
-    _poner_fines(amigos, a.despachos, notificaciones(ruta), ahora)
+    _poner_fines(amigos, a.despachos, avisos.fines, ahora)
     presentes = [d for d in amigos if d.termina is None or ahora - d.termina < SEGUNDOS_TRANSICION]
     if not presentes:
         return act
@@ -713,10 +840,22 @@ def _esta_parado(ruta: str) -> bool:
     if not entradas:
         return False
     u = entradas[-1]
-    if u.get("type") != "assistant":
-        return False
     msg = u.get("message") if isinstance(u.get("message"), dict) else {}
-    return msg.get("stop_reason") in ("end_turn", "stop_sequence")
+    if u.get("type") == "assistant":
+        return msg.get("stop_reason") in ("end_turn", "stop_sequence") or _es_entrega(msg)
+    # Desde 2.1.310 el agente termina entregando su informe: la última entrada es el resultado de SubagentHandback.
+    if u.get("type") == "user" and len(entradas) >= 2:
+        previo = entradas[-2].get("message")
+        return entradas[-2].get("type") == "assistant" and isinstance(previo, dict) and _es_entrega(previo)
+    return False
+
+
+def _es_entrega(msg: dict) -> bool:
+    """True si el mensaje del asistente es la llamada a SubagentHandback con la que un subagente entrega el informe
+    y termina (109 de 111 subagentes medidos en 2.1.310; los otros 2, con `end_turn`/`stop_sequence`)."""
+    cont = msg.get("content")
+    return isinstance(cont, list) and any(isinstance(b, dict) and b.get("type") == "tool_use"
+                                          and b.get("name") == "SubagentHandback" for b in cont)
 
 
 def _poner_fines(amigos: list[Despacho], despachos: list[list], fines: dict[str, float], ahora: float) -> None:
@@ -916,20 +1055,42 @@ def escritorio_amigo(am: Amigo | None, seg: int, ancho: int, con_leyenda: bool, 
     return [f1, f2, f3]
 
 
+ICONO_SCRIPT = "󰆍"   # md-console U+F018D
+ICONO_MONITOR = "󱎴"  # md-monitor_eye U+F13B4
+
+
+def escritorio_tareas(scripts: int, monitores: int, seg: int, ancho: int) -> Grilla:
+    """El escritorio de lo que corre de fondo sin ser un amigo: una pantalla en su pie, con la lámpara encendida.
+    Arriba, un ícono por clase y un contador cuando hay más de una."""
+    f1, f2 = fila_vacia(ancho), fila_vacia(ancho)
+    f3 = texto("━" * ancho, "piso")
+    partes = [icono + (str(n) if n > 1 else "") for icono, n in ((ICONO_SCRIPT, scripts), (ICONO_MONITOR, monitores)) if n]
+    poner(f1, 0, " ".join(partes), "texto principal")
+    _tableta(f2, 0, (SPINNER[seg % len(SPINNER)], "texto principal"))
+    f3[1] = ("┻", "apagado")
+    f2[LAMPARA_EN] = ("󰥟", "lampara encendida")
+    f3[LAMPARA_EN] = ("┻", "apagado")
+    return [f1, f2, f3]
+
+
 def dibujar_escena(act: Actividad, humor: Humor, seg: int, nivel: int, ancho_escritorio: int | None = None) -> Grilla:
     g = escritorio_clawd(act, humor, seg)
     n = ESCRITORIOS_POR_NIVEL[nivel]
     ancho = ANCHO_ESCRITORIO[nivel] if ancho_escritorio is None else ancho_escritorio
     if n == 0:
         return g
+    tareas = act.scripts > 0 or act.monitores > 0
+    n_amigos = n - 1 if tareas else n  # las tareas toman el último escritorio y los amigos se aprietan
     por_escritorio = {am.escritorio: am for am in act.amigos}
-    desbordados = sum(1 for am in act.amigos if am.escritorio >= n)
-    for k in range(n):
+    desbordados = sum(1 for am in act.amigos if am.escritorio >= n_amigos)
+    for k in range(n_amigos):
         am, extra = por_escritorio.get(k), 0
-        if k == n - 1 and desbordados:
+        if k == n_amigos - 1 and desbordados:
             extra, am = desbordados + (1 if am else 0), None
         d = escritorio_amigo(am, seg, ancho, con_leyenda=(nivel <= 0), extra=extra)
         g = [gf + df for gf, df in zip(g, d)]
+    if tareas:
+        g = [gf + df for gf, df in zip(g, escritorio_tareas(act.scripts, act.monitores, seg, ancho))]
     return g
 
 
@@ -983,10 +1144,25 @@ def _costo(c: float) -> str:
     return s[-5:]
 
 
+FAMILIAS = ("opus", "sonnet", "haiku", "fable")
+
+
+def token_modelo(modelo: str) -> str:
+    m = modelo.lower()
+    return next((f"modelo {f}" for f in FAMILIAS if f in m), "texto principal")
+
+
+def token_esfuerzo(esfuerzo: str, modelo: str = "") -> str:
+    familia = token_modelo(modelo)
+    familia = familia[len("modelo "):] + " " if familia.startswith("modelo ") else ""
+    tok = f"esfuerzo {familia}{str(esfuerzo).lower()}"
+    return tok if tok in PALETA else "texto principal"
+
+
 def fila_identidad(e: Entrada, act: Actividad, nivel: int) -> Fila:
-    modelo = texto(e.modelo, "texto principal")
+    modelo = texto(e.modelo, token_modelo(e.modelo))
     if e.esfuerzo and nivel <= 1:
-        modelo += texto(" · 󰧑 ", "texto secundario") + texto(e.esfuerzo, "texto principal")
+        modelo += texto(" · 󰧑 ", "texto secundario") + texto(e.esfuerzo, token_esfuerzo(e.esfuerzo, e.modelo))
     carpeta = texto("󰉋 ", "texto secundario") + texto(e.carpeta, "texto principal")
     rama = pr = None
     if nivel <= 2:
@@ -996,7 +1172,11 @@ def fila_identidad(e: Entrada, act: Actividad, nivel: int) -> Fila:
         if e.pr_numero is not None:
             pr = texto(" ", "texto secundario") + texto(("!" if e.pr_es_mr else "#") + str(e.pr_numero),
                                                          ESTADO_PR.get(e.pr_estado or "", "texto principal"))
-    return _bloques([modelo, carpeta, rama, pr])
+    lineas = None  # lo que cambió esta sesión va con la identidad: la fila de las ventanas ya no tiene lugar
+    if e.lineas is not None and nivel <= 0:
+        lineas = (texto("+", "texto secundario") + texto(str(e.lineas[0]), "texto principal")
+                  + texto(" −", "texto secundario") + texto(str(e.lineas[1]), "texto principal"))
+    return _bloques([modelo, carpeta, rama, pr, lineas])
 
 
 def fila_contexto(e: Entrada, nivel: int) -> Fila:
@@ -1011,15 +1191,47 @@ def fila_contexto(e: Entrada, nivel: int) -> Fila:
         cache = texto("󰆼 ", "texto secundario") + texto(_pct(e.cache_aciertos * 100), "texto principal")
         if e.cache_fallos > 0 and nivel <= 1:
             cache += texto(f" · {e.cache_fallos} fallos", "texto secundario")
-    return _bloques([ctx, cache])
+    return _bloques([ctx, cache, _bloque_costo(e, nivel) if nivel <= NIVEL_MAX_ESPERADO else None])
+
+
+DURACION_5H = 5 * 3600.0
+DURACION_7D = 7 * 86400.0
+# Márgenes del ritmo, como uso real sobre el esperado a esta hora (los «estrictos», elegidos el 2026-10-25).
+RITMO_BAJO, RITMO_BIEN, RITMO_AVISO = 0.90, 1.05, 1.20
+FRACCION_MINIMA_RITMO = 0.10  # antes, el esperado está tan cerca de cero que cualquier uso parece un exceso
+# Hasta acá se escribe el esperado. La fila de las ventanas era la más ancha del tablero (63 de 63 columnas a 165) y
+# el esperado le suma 12, así que en esos niveles el costo se muda a la fila del contexto y las líneas a la de la
+# identidad; más plegado no hay lugar para el esperado y el costo vuelve a su fila, donde sobra.
+NIVEL_MAX_ESPERADO = 0  # en el 1 la fila del contexto, con fallos de 2 cifras, se pasaba por una columna
+
+
+def poner_ritmo(v: Ventana | None, duracion: float, ahora: float) -> None:
+    """Cuánto tocaría llevar consumido a esta hora si el uso fuera parejo hasta el reinicio."""
+    if v is None or v.reinicio is None:
+        return
+    fraccion = min(1.0, max(0.0, 1 - (v.reinicio - ahora) / duracion))
+    v.fraccion, v.esperado = fraccion, fraccion * 100
+
+
+def token_ritmo(pct: float, esperado: float, fraccion: float) -> str:
+    if fraccion < FRACCION_MINIMA_RITMO:
+        return "bien"
+    r = pct / esperado
+    return ("ritmo bajo" if r < RITMO_BAJO else "bien" if r <= RITMO_BIEN
+            else "aviso" if r <= RITMO_AVISO else "critico")
 
 
 # nombre distinto de _ventana (ENTRADA) para no pisarlo a nivel de módulo
 def _ventana_fila(v: Ventana | None, etiqueta: str, nivel: int, con_dia: bool) -> Fila | None:
     if v is None:
         return None
-    tok = token_medidor(v.pct, 70, 90)
+    if v.esperado is None or v.fraccion is None:
+        tok = token_medidor(v.pct, 70, 90)
+    else:
+        tok = token_ritmo(v.pct, v.esperado, v.fraccion)
     f = texto(torta(v.pct) + " ", tok) + texto(etiqueta + " ", "texto secundario") + texto(_pct(v.pct), tok)
+    if v.esperado is not None and nivel <= NIVEL_MAX_ESPERADO:
+        f += texto(f" ({round(v.esperado)}%)", "texto secundario")
     if v.reinicio is not None and nivel <= 1:
         try:
             lt = time.localtime(v.reinicio)
@@ -1039,12 +1251,11 @@ def _ventana_fila(v: Ventana | None, etiqueta: str, nivel: int, con_dia: bool) -
 def fila_ventanas(e: Entrada, nivel: int) -> Fila:
     cinco = _ventana_fila(e.cinco_h, "5 h", nivel, con_dia=False)
     siete = _ventana_fila(e.siete_d, "7 d", nivel, con_dia=True)
-    costo = texto("$" + _costo(e.costo), "texto principal") if e.costo is not None and nivel <= 3 else None
-    lineas = None
-    if e.lineas is not None and nivel <= 0:
-        lineas = (texto("+", "texto secundario") + texto(str(e.lineas[0]), "texto principal")
-                  + texto(" −", "texto secundario") + texto(str(e.lineas[1]), "texto principal"))
-    return _bloques([cinco, siete, costo, lineas])
+    return _bloques([cinco, siete, _bloque_costo(e, nivel) if nivel > NIVEL_MAX_ESPERADO else None])
+
+
+def _bloque_costo(e: Entrada, nivel: int) -> Fila | None:
+    return texto("$" + _costo(e.costo), "texto principal") if e.costo is not None and nivel <= 3 else None
 
 
 def dibujar_tablero(e: Entrada, act: Actividad, nivel: int) -> Grilla:
@@ -1139,6 +1350,8 @@ def correr(crudo: bytes, ahora: float, ancho: int) -> str:
         e = leer_entrada(crudo)
         if not e.valida:
             return pintar_fila(respaldo(e.modelo, e.carpeta))
+        poner_ritmo(e.cinco_h, DURACION_5H, ahora)
+        poner_ritmo(e.siete_d, DURACION_7D, ahora)
         act = leer_actividad(e.transcript_path, e.session_id, ahora, e.contexto_total)
         grilla = componer_que_entre(e, act, int(ahora), ancho)
         return "\n".join(pintar_fila(f) for f in grilla)

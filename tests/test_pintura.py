@@ -56,7 +56,10 @@ def test_ningun_hexadecimal_fuera_de_la_paleta():
     assert set(sl.PALETA) == {
         "mascota", "amigo explore", "amigo general", "amigo plan", "amigo propio", "amigo desconocido",
         "lampara encendida", "lampara apagada", "frio", "texto principal", "texto secundario",
-        "apagado", "piso", "bien", "aviso", "critico"}
+        "apagado", "piso", "bien", "aviso", "critico", "ritmo bajo",
+        "modelo opus", "modelo sonnet", "modelo haiku", "modelo fable",
+        *(f"esfuerzo {f}{n}" for f in ("opus ", "sonnet ", "haiku ", "fable ", "")
+          for n in ("low", "medium", "high", "xhigh", "max"))}
 
 
 def test_stdin_vacio_produce_la_linea_de_respaldo():

@@ -3,7 +3,7 @@
 Los tres bugs que este archivo fija como invariante se midieron el 2026-09-17 sobre sesiones reales
 (219 transcripts de subagente, 28.989 huecos entre entradas, 217 `.meta.json`).
 """
-from conftest import (T0, amigo, id_agente, notificacion, oficina, prompt_usuario, sl, texto_asistente,
+from conftest import (T0, amigo, entrega, id_agente, notificacion, oficina, prompt_usuario, sl, texto_asistente,
                       texto_final, tool_result, tool_use)
 
 
@@ -187,6 +187,40 @@ def test_el_amigo_reanudado_despues_de_la_notificacion_sigue_vivo(tmp_path):
     ruta = oficina(tmp_path, principal, [amigo("ag1", entradas, nace=T0, mtime=T0 + 200)])
     am = sl.leer_actividad(ruta, "s1", T0 + 205).amigos[0]
     assert am.terminado_hace is None and am.pose == sl.EJECUTANDO
+
+
+# ── fin: la entrega del informe (2.1.310) ──────────────────────────────
+def test_la_entrega_del_informe_cuenta_como_parada(tmp_path):
+    """El bug que se veía en vivo el 2026-10-25: desde Claude Code 2.1.310 los subagentes terminan con una llamada a
+    `SubagentHandback` y su resultado, no con un `end_turn` (109 de 111 medidos). `_esta_parado` no lo reconocía,
+    la notificación nunca apagaba el escritorio y el amigo se quedaba sentado los 20 minutos del respaldo."""
+    principal = [notificacion("ag1", T0 + 61)]
+    ruta = oficina(tmp_path, principal, [amigo("ag1", entrega("h1", T0 + 60), nace=T0, mtime=T0 + 60)])
+    assert sl.leer_actividad(ruta, "s1", T0 + 64).amigos == []
+
+
+def test_la_entrega_sin_notificacion_no_apaga(tmp_path):
+    """El control de arriba: lo que apaga es la notificación; la entrega sola sólo dice que ahora mismo está parado."""
+    ruta = oficina(tmp_path, [], [amigo("ag1", entrega("h1", T0 + 60), nace=T0, mtime=T0 + 60)])
+    assert [am.id for am in sl.leer_actividad(ruta, "s1", T0 + 64).amigos] == ["ag1"]
+
+
+def test_el_amigo_reanudado_despues_de_la_entrega_sigue_vivo(tmp_path):
+    entradas = [*entrega("h1", T0 + 60), prompt_usuario(T0 + 150), tool_use("x2", "Grep", {"pattern": "p"}, T0 + 200)]
+    ruta = oficina(tmp_path, [notificacion("ag1", T0 + 61)], [amigo("ag1", entradas, nace=T0, mtime=T0 + 200)])
+    am = sl.leer_actividad(ruta, "s1", T0 + 205).amigos[0]
+    assert am.terminado_hace is None and am.pose == sl.LEYENDO
+
+
+def test_failed_y_killed_con_el_amigo_parado_apagan(tmp_path):
+    """Un agente que falla («Agent terminated») notifica `failed` y su archivo termina en `stop_sequence`; medido
+    el 2026-10-25, ninguno de los 7 escribió después. Antes sólo `completed` apagaba y éstos esperaban el silencio."""
+    for estado in ("failed", "killed"):
+        caso = tmp_path / estado
+        caso.mkdir()
+        ruta = oficina(caso, [notificacion("ag1", T0 + 61, estado=estado)],
+                       [amigo("ag1", [texto_final(T0 + 60)], nace=T0, mtime=T0 + 60)])
+        assert sl.leer_actividad(ruta, "s1", T0 + 64).amigos == [], estado
 
 
 # ── fin: end_turn ya no alcanza ────────────────────────────────────────

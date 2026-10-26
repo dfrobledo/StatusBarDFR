@@ -114,6 +114,40 @@ def notificacion(tool_use_id, t, agent_id=None, estado="completed", tipo="queue-
                            "timestamp": iso(t)}}
 
 
+def entrega(id_, t):
+    """Cómo termina un subagente desde Claude Code 2.1.310 (109 de 111 medidos el 2026-10-25): no con un `end_turn`
+    sino con una llamada a `SubagentHandback` y su resultado. Devuelve las dos entradas."""
+    uso = tool_use(id_, "SubagentHandback", {"report": "listo"}, t, msg="msg_h")
+    uso["message"]["stop_reason"] = "tool_use"
+    r = tool_result(id_, t + 0.1)
+    r["message"]["content"][0]["content"] = [{"type": "text", "text": '{"success":true,"message":"Report delivered"}'}]
+    return [uso, r]
+
+
+def arranque_tarea(task_id, t, monitor=False, timeout_ms=1_800_000, persistente=False):
+    """El `tool_result` con el que nace una tarea de fondo (forma real de 2.1.310): un Bash con `run_in_background`
+    trae `backgroundTaskId`; un Monitor trae `taskId`, `timeoutMs` y `persistent`."""
+    r = tool_result("u_" + task_id, t)
+    if monitor:
+        r["toolUseResult"] = {"taskId": task_id, "timeoutMs": timeout_ms, "persistent": persistente}
+        r["message"]["content"][0]["content"] = f"Monitor started (task {task_id}, expires in 30m ...)"
+    else:
+        r["toolUseResult"] = {"stdout": "", "stderr": "", "interrupted": False, "backgroundTaskId": task_id}
+        r["message"]["content"][0]["content"] = f"Command running in background with ID: {task_id}."
+    return r
+
+
+def aviso_tarea(task_id, t, estado="completed", monitor=False):
+    """`<task-notification>` de una tarea de fondo. Con `estado=None` es un evento de Monitor, que no trae status."""
+    if estado is None:
+        cuerpo = [f'<summary>Monitor event: "x"</summary>', "<event>linea</event>"]
+    else:
+        que = "Monitor" if monitor else "Background command"
+        cuerpo = [f"<status>{estado}</status>", f'<summary>{que} "x" {estado}</summary>']
+    xml = "\n".join(["<task-notification>", f"<task-id>{task_id}</task-id>", *cuerpo, "</task-notification>"])
+    return {"type": "queue-operation", "operation": "enqueue", "timestamp": iso(t), "content": xml}
+
+
 def amigo(tid, entradas, nace, mtime, agent_id=None, tipo="Explore", descripcion="Revisar", fondo=True):
     """Un subagente de la carpeta `subagents`: su .meta.json y su .jsonl."""
     return dict(tid=tid, entradas=entradas, nace=nace, mtime=mtime, tipo=tipo, descripcion=descripcion,

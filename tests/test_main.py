@@ -97,15 +97,41 @@ def test_no_queda_una_columna_muerta_a_ningun_ancho(tmp_path):
     exacto del tope son las aserciones numéricas de `test_repartir_sobrante_respeta_el_tope_de_20`, no
     este test de rango."""
     crudo = sesion(tmp_path)
-    e = sl.leer_entrada(crudo)
-    act = sl.leer_actividad(e.transcript_path, e.session_id, T0, e.contexto_total)
-    for ancho in range(47, 241):
-        g = sl.componer_que_entre(e, act, int(T0), ancho)
-        assert sl.ancho_de_grilla(g) == ancho, f"a {ancho} columnas la grilla mide {sl.ancho_de_grilla(g)}"
-        anchos = anchos_de_filas(g)
-        despareja = max(anchos) - min(anchos)
-        assert despareja <= MAXIMO_DESPAREJO_ENTRE_FILAS, (
-            f"a {ancho} columnas las filas difieren en {despareja} ({anchos}), por encima de la cota")
+    for con_ritmo in (False, True):
+        e = sl.leer_entrada(crudo)
+        if con_ritmo:
+            _con_ritmo(e)
+        act = sl.leer_actividad(e.transcript_path, e.session_id, T0, e.contexto_total)
+        for ancho in range(47, 241):
+            g = sl.componer_que_entre(e, act, int(T0), ancho)
+            assert sl.ancho_de_grilla(g) == ancho, f"a {ancho} columnas la grilla mide {sl.ancho_de_grilla(g)}"
+            anchos = anchos_de_filas(g)
+            despareja = max(anchos) - min(anchos)
+            assert despareja <= MAXIMO_DESPAREJO_ENTRE_FILAS, (
+                f"a {ancho} columnas las filas difieren en {despareja} ({anchos}), por encima de la cota")
+
+
+def _con_ritmo(e):
+    """Lo que pasa en vivo: correr() le pone el esperado a cada ventana con reinicio. Reinicios a mitad de ventana."""
+    e.cinco_h = sl.Ventana(58, T0 + 2.5 * 3600)
+    e.siete_d = sl.Ventana(27, T0 + 3.5 * 86400)
+    sl.poner_ritmo(e.cinco_h, sl.DURACION_5H, T0)
+    sl.poner_ritmo(e.siete_d, sl.DURACION_7D, T0)
+
+
+def test_el_ritmo_esperado_no_baja_de_peldano(tmp_path):
+    """El esperado suma 12 columnas a la fila de las ventanas, que era la más ancha (63 de 63 a 165): sin mudar el
+    costo y las líneas a otras filas, a 165 y a 140 la oficina perdía escritorios y leyendas. A cada peldaño el
+    tablero con ritmo, cache con fallos y costo de 5 cifras tiene que entrar en lo que le deja la escena."""
+    e = sl.leer_entrada(sesion(tmp_path))
+    _con_ritmo(e)
+    # Líneas de 3 cifras: con 4 («+1234 −567») ya se pasaba antes del ritmo y el elástico baja de peldaño.
+    e.cache_fallos, e.costo, e.lineas = 12, 123.4, (312, 18)
+    act = sl.Actividad(rama="master")
+    for minimo, nivel in sl.NIVELES[:-1]:
+        lugar = minimo - sl.ancho_escena(nivel) - sl.HUECO_MIN
+        filas = [len(f) for f in sl.dibujar_tablero(e, act, nivel)]
+        assert max(filas) <= lugar, f"nivel {nivel}: filas {filas}, lugar {lugar}"
 
 
 def test_ancho_consola_cae_a_columns_y_a_un_respaldo(monkeypatch):
@@ -241,3 +267,17 @@ def test_proceso_con_transcript_truncado(tmp_path):
 def test_proceso_con_stdin_basura_no_falla():
     r = correr_proceso(b"\xff\xfe no es utf-8 ni json")
     assert r.returncode == 0 and r.stderr == b"" and b"Claude" in r.stdout
+
+
+def test_dorados_con_ritmo_y_tareas(tmp_path):
+    """Lo que se ve en vivo con una suscripción: el esperado de cada ventana, y un script y un monitor de fondo en el
+    último escritorio. 164 y 165 son los dos lados del peldaño: el ritmo no puede bajar a nadie de peldaño."""
+    e = sl.leer_entrada(sesion(tmp_path))
+    _con_ritmo(e)
+    act = sl.leer_actividad(e.transcript_path, e.session_id, T0, e.contexto_total)
+    act.scripts, act.monitores = 1, 1
+    for ancho in (164, 165, 202):
+        g = sl.componer_que_entre(e, act, int(T0), ancho)
+        verificar_tokens(g)
+        assert sl.ancho_de_grilla(g) == ancho
+        golden(f"ritmo_tareas_{ancho}", g)

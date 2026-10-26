@@ -2,8 +2,9 @@
 
 Una status line para [Claude Code](https://claude.com/claude-code) que convierte la barra de abajo en una
 pequeña oficina: Clawd, la mascota de Claude, trabaja en su escritorio imitando lo que Claude está haciendo,
-y cada subagente que lanza aparece como un amigo en su propio escritorio. A la derecha, un tablero con todo
-lo que conviene tener a la vista: contexto, caché, límites de uso y costo.
+y cada subagente que lanza aparece como un amigo en su propio escritorio; los scripts y monitores que corren de
+fondo tienen el suyo. A la derecha, un tablero con todo lo que conviene tener a la vista: contexto, caché, costo y
+límites de uso, con un color que dice si vas por debajo o por encima del ritmo.
 
 ![StatusBarDFR en la terminal de VS Code](docs/captura.png)
 
@@ -36,16 +37,35 @@ Además, la escena refleja cómo va la sesión:
 **Los amigos** son los subagentes en curso. Cada uno ocupa un escritorio con su lámpara, lleva el nombre de
 su tipo y muestra en su tableta la herramienta que está usando. El color indica el tipo: azul para
 `Explore`, verde para `general-purpose`, ámbar para `Plan` y rosa para los agentes propios. Cuando no hay
-escritorios para todos, se muestra `+N`.
+escritorios para todos, se muestra `+N`. Un amigo deja su escritorio apenas termina, también si falló o lo
+cancelaron.
+
+**Las tareas de fondo** ocupan el último escritorio mientras haya alguna viva, aunque no quede ningún amigo:
+una pantalla animada con `󰆍` para los scripts (`Bash` en segundo plano) y `󱎴` para los monitores (`Monitor`),
+cada uno con su contador cuando hay más de uno.
 
 ### El tablero
 
-- Modelo y nivel de esfuerzo.
-- Carpeta, rama (o worktree) y número de PR con su estado en color.
-- Barra de contexto con una marca `┆` donde Claude Code autocompacta.
-- Tasa de aciertos de la caché de prompt y cantidad de fallos.
-- Uso de las ventanas de **5 horas** y **7 días**, con la hora a la que se reinicia cada una.
-- Costo de la sesión en dólares y líneas agregadas y quitadas.
+- **Modelo y nivel de esfuerzo.** Cada familia tiene su color: Opus violeta, Sonnet turquesa, Haiku rosa y Fable
+  cobre. El esfuerzo usa el mismo color, más intenso cuanto más alto: pálido en `low`, pleno en `max`.
+- Carpeta, rama (o worktree), número de PR con su estado en color y líneas agregadas y quitadas.
+- Barra de contexto con una marca `┆` donde Claude Code autocompacta, tasa de aciertos de la caché de prompt,
+  cantidad de fallos y costo de la sesión en dólares.
+- Uso de las ventanas de **5 horas** y **7 días**, con la hora a la que se reinicia cada una y, entre paréntesis,
+  cuánto tocaría llevar consumido a esta hora si el uso fuera parejo hasta el reinicio: `58% (40%)`.
+
+El porcentaje de cada ventana se pinta según el ritmo, es decir, el uso real dividido por el esperado:
+
+| Color | Ritmo | Qué significa |
+|---|---|---|
+| Azul | menos del 90 % | vas por debajo |
+| Verde | del 90 al 105 % | vas en el margen |
+| Amarillo | del 105 al 120 % | vas levemente excedido |
+| Rojo | más del 120 % | a este paso llegas al límite antes del reinicio |
+
+Durante el primer 10 % de cada ventana se queda en verde: el esperado está tan cerca de cero que cualquier uso
+parecería un exceso. El número esperado necesita lugar y solo aparece con 140 columnas o más; en terminales más
+angostas queda el color.
 
 ### Se adapta al ancho
 
@@ -55,7 +75,7 @@ del contenido, así que la barra no parpadea cuando cambia la rama o el costo.
 
 ## Requisitos
 
-- **Claude Code**.
+- **Claude Code**. Probado con la 2.1.310; las versiones anteriores también funcionan.
 - **Python 3**, sin paquetes adicionales: el script usa solo la biblioteca estándar. Probado con Python 3.12.
 - **Una [Nerd Font](https://www.nerdfonts.com/)** configurada en la terminal. Sin ella, los iconos salen como
   cuadritos. Se recomienda la variante *Mono* (por ejemplo `JetBrainsMono Nerd Font Mono`), que dibuja cada
@@ -100,6 +120,44 @@ funcionar, pero todavía no está probado.
 ```
 
 Con `minimumContrastRatio: 1`, VS Code respeta los colores tal cual en lugar de ajustarlos.
+
+## Actualizar a una versión nueva
+
+Si la instalaste con `git clone`, basta con traer los cambios en la carpeta del repositorio:
+
+```sh
+cd /ruta/a/StatusBarDFR
+git pull
+```
+
+No hay que tocar `settings.json` ni reiniciar Claude Code: el script se ejecuta de nuevo cada segundo, así que la
+versión nueva aparece sola en todas las sesiones abiertas.
+
+- **Si cambiaste el script a mano**, guarda tus cambios antes con `git stash` y vuelve a aplicarlos después con
+  `git stash pop`.
+- **Si la descargaste como ZIP**, descarga la versión nueva desde la página de
+  [releases](https://github.com/dfrobledo/StatusBarDFR/releases) y reemplaza los archivos **en la misma carpeta**,
+  para que la ruta que tiene `settings.json` siga siendo válida.
+- **Para saber qué versión tienes**: `git describe --tags`.
+- **Para comprobar que quedó bien**: `python tools/vista.py` muestra las tareas de fondo, los colores del modelo y
+  los del ritmo.
+
+## Novedades
+
+### 1.1.0
+
+- **Los amigos se van cuando terminan.** Desde Claude Code 2.1.310 los subagentes terminan de otra forma, y la
+  barra los dejaba sentados hasta 20 minutos después de haber terminado. También se van los que fallan o se
+  cancelan.
+- **Escritorio para las tareas de fondo:** scripts y monitores, con su contador.
+- **Ritmo de los límites:** el uso esperado a esta hora junto a cada ventana y un color según el ritmo.
+- **Colores para el modelo y el esfuerzo.**
+- El costo pasó a la fila del contexto y las líneas cambiadas a la de identidad, para hacerle lugar al ritmo
+  sin perder escritorios.
+
+### 1.0.0
+
+- Primera versión: Clawd, los amigos, el tablero y el plegado por ancho.
 
 ## Probarla sin Claude Code
 
