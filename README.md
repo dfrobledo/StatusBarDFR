@@ -34,11 +34,38 @@ Además, la escena refleja cómo va la sesión:
 - **Un café** tibio o frío según la caché de prompt esté viva o se haya enfriado.
 - **Un reloj de arena** en amarillo o rojo cuando la ventana de 5 horas pasa del 85 % o del 95 %.
 
-**Los amigos** son los subagentes en curso. Cada uno ocupa un escritorio con su lámpara, lleva el nombre de
-su tipo y muestra en su tableta la herramienta que está usando. El color indica el tipo: azul para
-`Explore`, verde para `general-purpose`, ámbar para `Plan` y rosa para los agentes propios. Cuando no hay
-escritorios para todos, se muestra `+N`. Un amigo deja su escritorio apenas termina, también si falló o lo
-cancelaron.
+**Los amigos** son los subagentes en curso. Cada uno ocupa un escritorio con su lámpara:
+
+```
+╭─◉◉╮ S Buscar el b
+╰┬─┬╯▕󰍉▏ 󰥟
+━┻━┻━━━━━┻━━━━━━━━━
+```
+
+- **El color de la figura** dice qué tipo de agente es:
+
+  | Color | Tipo |
+  |---|---|
+  | azul índigo | `Explore` |
+  | verde | `general-purpose` |
+  | dorado oliva | `Plan` |
+  | orquídea | cualquier otro: los agentes propios (`.claude/agents/`) y los de plugins |
+  | gris | tipo desconocido |
+
+  Los cuatro colores se distinguen entre sí también con daltonismo, y ninguno se confunde con Clawd.
+
+- **La letra** es la inicial de su modelo, en el color de esa familia, el mismo que usa el tablero: `O` Opus
+  (violeta), `S` Sonnet (turquesa), `H` Haiku (rosa claro), `F` Fable (cobre). Si el agente no pidió un modelo
+  propio, lleva el de la sesión.
+- **El texto** es el encargo con que se lo despachó, recortado al ancho del escritorio.
+- **La tableta** muestra lo que hace en este momento: `󰍉` busca, `󰈙` lee, `󰏫` escribe, una ruedita ejecuta,
+  `󰖟` navega, `󰃢` compacta y `󰀦`, en rojo, acaba de fallar una herramienta.
+- **La lámpara** amarilla indica un escritorio ocupado, y gris uno libre. Una chispa `✦` anuncia al que llega y
+  `✧` despide al que se va.
+
+Cuando no hay escritorios para todos, el último muestra `+N`. Un amigo deja su escritorio apenas termina,
+también si falló o lo cancelaron. La letra y el encargo sólo se ven en las terminales anchas; en las angostas
+queda la figura con su color y su tableta.
 
 **Las tareas de fondo** ocupan el último escritorio mientras haya alguna viva, aunque no quede ningún amigo:
 una pantalla animada con `󰆍` para los scripts (`Bash` en segundo plano) y `󱎴` para los monitores (`Monitor`),

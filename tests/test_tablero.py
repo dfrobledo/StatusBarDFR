@@ -67,12 +67,12 @@ def test_fila_identidad_por_nivel():
 
 
 def test_fila_contexto_completa_y_niveles():
-    assert plano(sl.fila_contexto(entrada(), 0)) == "󰃥 ████████░░░░░░░░┆░░░  41%   󰆼  78%   $ 4.20"
+    assert plano(sl.fila_contexto(entrada(), 0)) == "󰃥 ████████░░░░░░░░┆░░░  41%   󱐋  78%   $ 4.20"
     assert plano(sl.fila_contexto(entrada(cache_fallos=2), 0)) == \
-        "󰃥 ████████░░░░░░░░┆░░░  41%   󰆼  78% · 2 fallos   $ 4.20"
-    assert plano(sl.fila_contexto(entrada(cache_fallos=2), 2)) == "󰃥 ████████░░░░░░░░┆░░░  41%   󰆼  78%"
-    assert plano(sl.fila_contexto(entrada(), 3)) == "󰃥 ████░░░░┆░  41%   󰆼  78%"
-    assert plano(sl.fila_contexto(entrada(), 4)) == "󰃥  41%   󰆼  78%"
+        "󰃥 ████████░░░░░░░░┆░░░  41%   󱐋  78% · 2 fallos   $ 4.20"
+    assert plano(sl.fila_contexto(entrada(cache_fallos=2), 2)) == "󰃥 ████████░░░░░░░░┆░░░  41%   󱐋  78%"
+    assert plano(sl.fila_contexto(entrada(), 3)) == "󰃥 ████░░░░┆░  41%   󱐋  78%"
+    assert plano(sl.fila_contexto(entrada(), 4)) == "󰃥  41%   󱐋  78%"
 
 
 def test_fila_contexto_colorea_barra_y_numero_juntos():
@@ -125,6 +125,26 @@ def test_dorados_del_tablero_por_nivel():
         g = sl.dibujar_tablero(entrada(cinco_h=sl.Ventana(88, None), siete_d=sl.Ventana(27, None)), ACT, nivel)
         verificar_tokens(g)
         golden(f"tablero_n{nivel}", g)
+
+
+def test_el_ultimo_bloque_de_cada_fila_toca_el_borde_derecho():
+    """El tablero era una grilla despareja: sólo la fila más ancha llegaba al borde. Ahora el último bloque de
+    cada fila se corre hasta ahí, y el aire se junta en un solo lugar, justo antes de él; lo demás no se mueve."""
+    for nivel in range(5):
+        e = entrada(cinco_h=sl.Ventana(58, 1_800_010_000), siete_d=sl.Ventana(27, None))
+        filas = sl.dibujar_tablero(e, ACT, nivel)
+        assert len({len(f) for f in filas}) == 1, (nivel, [plano(f) for f in filas])
+        for f, natural in zip(filas, (sl.fila_identidad(e, ACT, nivel), sl.fila_contexto(e, nivel),
+                                      sl.fila_ventanas(e, nivel))):
+            nat = plano(natural)
+            k = nat.rfind(sl.SEPARADOR) + len(sl.SEPARADOR)
+            assert plano(f) == nat[:k] + " " * (len(f) - len(nat)) + nat[k:], (nivel, plano(f))
+
+
+def test_una_fila_de_un_solo_bloque_se_queda_a_la_izquierda():
+    e = entrada(cache_observada=False, costo=None)
+    filas = sl.dibujar_tablero(e, ACT, 0)
+    assert plano(filas[1]) == plano(sl.fila_contexto(e, 0)) == "󰃥 ████████░░░░░░░░┆░░░  41%"
 
 
 def test_tablero_sin_naranja():

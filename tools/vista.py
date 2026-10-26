@@ -22,12 +22,12 @@ def entrada():
 
 
 def amigos():
-    return [sl.Amigo("a1", "explore", "explore", pose=sl.LEYENDO, leyenda="pose", herramienta="Grep", nacido_hace=9, escritorio=0),
-            sl.Amigo("a2", "general", "general", pose=sl.EJECUTANDO, leyenda="x", herramienta="Bash", nacido_hace=9, escritorio=1),
-            sl.Amigo("a3", "plan", "plan", pose=sl.ESCRIBIENDO, leyenda="p.md", herramienta="Write", nacido_hace=9, escritorio=2),
+    return [sl.Amigo("a1", "explore", "explore", descripcion="Buscar el parser", modelo="haiku", pose=sl.LEYENDO, leyenda="pose", herramienta="Grep", nacido_hace=9, escritorio=0),
+            sl.Amigo("a2", "general", "general", descripcion="Correr las pruebas", modelo="sonnet", pose=sl.EJECUTANDO, leyenda="x", herramienta="Bash", nacido_hace=9, escritorio=1),
+            sl.Amigo("a3", "plan", "plan", descripcion="Plan del refactor", modelo="opus", pose=sl.ESCRIBIENDO, leyenda="p.md", herramienta="Write", nacido_hace=9, escritorio=2),
             sl.Amigo("a4", "propio", "revisor", nacido_hace=1, escritorio=3),
-            sl.Amigo("a5", "explore", "explore", pose=sl.NAVEGANDO, leyenda="docs", herramienta="WebFetch", nacido_hace=9, escritorio=4),
-            sl.Amigo("a6", "general", "general", pose=sl.PENSANDO, leyenda="", nacido_hace=9, escritorio=5)]
+            sl.Amigo("a5", "explore", "explore", descripcion="Leer la doc", modelo="fable", pose=sl.NAVEGANDO, leyenda="docs", herramienta="WebFetch", nacido_hace=9, escritorio=4),
+            sl.Amigo("a6", "general", "general", descripcion="Revisar el diff", modelo="opus", pose=sl.PENSANDO, leyenda="", nacido_hace=9, escritorio=5)]
 
 
 def imprimir(grilla, titulo):

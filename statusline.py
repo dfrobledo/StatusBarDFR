@@ -18,10 +18,13 @@ from datetime import datetime
 # Única tabla de colores del archivo. Cada celda pide un token; nunca un hexadecimal suelto.
 PALETA: dict[str, str] = {
     "mascota": "#D77757",
-    "amigo explore": "#3987e5",
-    "amigo general": "#199e70",
-    "amigo plan": "#c98500",
-    "amigo propio": "#d55181",
+    # Desde que el escritorio rotula el encargo, el color es lo único que dice el tipo: se distinguen entre sí también
+    # con daltonismo, y de Clawd y de las letras de modelo (tests/test_colores.py). El ámbar de Plan se leía como un
+    # Clawd chiquito, y el verde y el rosa de antes eran el mismo color para un deuteranope.
+    "amigo explore": "#3d56f1",
+    "amigo general": "#17a66a",
+    "amigo plan": "#b8ac24",
+    "amigo propio": "#ad36a2",
     "amigo desconocido": "#9A9A9A",
     "lampara encendida": "#F2E394",
     "lampara apagada": "#4A4A4A",
@@ -35,7 +38,7 @@ PALETA: dict[str, str] = {
     "critico": "#d03b3b",
     "ritmo bajo": "#4c8fe8",
     # Anthropic no le asigna color a cada modelo (la paleta de marca tiene un solo acento naranja, que es el de Clawd):
-    # tonos propios, lejos de los del ritmo. Nunca van dos juntos, así que sólo importa el contraste.
+    # tonos propios, lejos de los del ritmo. En el tablero va uno solo; en la oficina, la letra de cada amigo.
     "modelo opus": "#b48ef0",
     "modelo sonnet": "#3ec6d6",
     "modelo haiku": "#f08cb8",
@@ -314,6 +317,7 @@ class Amigo(_Registro):
         ("tipo", _REQUERIDO),               # str: sufijo del token: explore | general | plan | propio | desconocido
         ("nombre", _REQUERIDO),             # str: leyenda de hasta 7 caracteres
         ("descripcion", ""),                # str
+        ("modelo", ""),                     # str: alias del meta (opus | sonnet | ...) o el de la sesión si hereda
         ("pose", PENSANDO),                 # str
         ("leyenda", ""),                    # str
         ("herramienta", None),              # str | None
@@ -544,6 +548,7 @@ class Despacho(_Registro):
         ("ruta", None),             # str | None: su JSONL, si ya existe
         ("tipo", None),             # str | None: agentType
         ("descripcion", ""),        # str
+        ("modelo", ""),             # str: `model` del meta o del despacho; "inherit" o vacío = el de la sesión
         ("escrito", None),          # float | None: mtime de su JSONL; fiel al último timestamp de adentro
         ("termina", None),          # float | None
     )
@@ -602,7 +607,8 @@ def censar_amigos(carpeta: str, ahora: float) -> list[Despacho]:
         if m is None:
             continue
         salida.append(Despacho(id=str(m["toolUseId"]), nace=nace, tipo=m.get("agentType"),
-                               descripcion=str(m.get("description") or ""), escrito=mtime,
+                               descripcion=str(m.get("description") or ""), modelo=str(m.get("model") or ""),
+                               escrito=mtime,
                                agente=base[len("agent-"):] if base.startswith("agent-") else base,
                                ruta=None if mtime is None else os.path.join(carpeta, base + ".jsonl")))
     salida.sort(key=lambda d: d.nace)
@@ -797,7 +803,7 @@ def leer_actividad(ruta: str | None, session_id: str | None, ahora: float, conte
     dibujados = max(ESCRITORIOS_POR_NIVEL.values())
     for d in presentes:
         am = Amigo(id=d.id, tipo=clase_amigo(d.tipo), nombre=nombre_amigo(d.tipo), descripcion=d.descripcion,
-                   nacido_hace=ahora - d.nace, escritorio=asignacion[d.id],
+                   modelo=d.modelo, nacido_hace=ahora - d.nace, escritorio=asignacion[d.id],
                    terminado_hace=None if d.termina is None else ahora - d.termina)
         if d.termina is None and d.ruta and am.escritorio < dibujados:
             propias = leer_cola(d.ruta)
@@ -819,6 +825,7 @@ def _sumar_los_del_transcript(amigos: list[Despacho], despachos: list[list], dir
             amigos.append(d)
         d.tipo = entrada.get("subagent_type") or d.tipo
         d.descripcion = str(entrada.get("description") or "") or d.descripcion
+        d.modelo = d.modelo or str(entrada.get("model") or "")  # el meta manda: es lo que de verdad corrió
         if d.ruta is None and fondo is not None:
             archivo = os.path.join(dir_sub, f"agent-{fondo}.jsonl")
             try:
@@ -1041,9 +1048,13 @@ def escritorio_amigo(am: Amigo | None, seg: int, ancho: int, con_leyenda: bool, 
     cabeza = CABEZA_AMIGO.get(am.pose, CABEZA_AMIGO_HERRAMIENTA)
     poner(f1, 0, cabeza[s % len(cabeza)], tok)
     if con_leyenda:
-        # la última columna queda libre: sin ella la leyenda se pega a la cabeza del escritorio vecino
-        etiqueta = f"{am.nombre} {am.leyenda}".rstrip()
+        # la letra de su modelo y su encargo; la última columna queda libre: sin ella el texto se pega a la
+        # cabeza del escritorio vecino
+        letra = letra_modelo(am.modelo)
+        etiqueta = (letra + " " if letra else "") + (am.descripcion or am.nombre)
         poner(f1, TEXTO_EN_ESCRITORIO, etiqueta[:max(0, ancho - TEXTO_EN_ESCRITORIO - 1)], "texto principal")
+        if letra and ancho - TEXTO_EN_ESCRITORIO - 1 > 0:
+            f1[TEXTO_EN_ESCRITORIO] = (letra, token_modelo(am.modelo))
     patas = PATAS_AMIGO["salto" if am.pose == ESCRIBIENDO else "parado"]
     cuerpo, pies = patas[s % len(patas)]
     for i, c in enumerate(cuerpo):
@@ -1100,6 +1111,7 @@ UMBRAL_AUTOCOMPACT_PCT = 84  # 200000 - min(32000, 20000) - 13000 = 167000 token
 TORTAS = "󰪞󰪟󰪠󰪡󰪢󰪣󰪤󰪥"
 DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 SEPARADOR = "   "
+ICONO_CACHE = "󱐋"  # md-lightning_bolt U+F140B: el disco (md-database) se leía como almacenamiento
 ESTADO_PR = {"approved": "bien", "changes_requested": "critico", "pending": "aviso", "draft": "texto secundario"}
 
 
@@ -1153,6 +1165,19 @@ def token_modelo(modelo: str) -> str:
     return next((f"modelo {f}" for f in FAMILIAS if f in m), "texto principal")
 
 
+def letra_modelo(modelo: str) -> str:
+    """La inicial de la familia («O» de Opus); vacía si no es una conocida."""
+    m = modelo.lower()
+    return next((f[0].upper() for f in FAMILIAS if f in m), "")
+
+
+def heredar_modelo(act: Actividad, modelo_sesion: str) -> None:
+    """Un amigo sin modelo propio (`inherit`, o sin `model` en el meta ni en el despacho) corre con el de la sesión."""
+    for am in act.amigos:
+        if not letra_modelo(am.modelo):
+            am.modelo = modelo_sesion
+
+
 def token_esfuerzo(esfuerzo: str, modelo: str = "") -> str:
     familia = token_modelo(modelo)
     familia = familia[len("modelo "):] + " " if familia.startswith("modelo ") else ""
@@ -1160,7 +1185,7 @@ def token_esfuerzo(esfuerzo: str, modelo: str = "") -> str:
     return tok if tok in PALETA else "texto principal"
 
 
-def fila_identidad(e: Entrada, act: Actividad, nivel: int) -> Fila:
+def bloques_identidad(e: Entrada, act: Actividad, nivel: int) -> list[Fila | None]:
     modelo = texto(e.modelo, token_modelo(e.modelo))
     if e.esfuerzo and nivel <= 1:
         modelo += texto(" · 󰧑 ", "texto secundario") + texto(e.esfuerzo, token_esfuerzo(e.esfuerzo, e.modelo))
@@ -1177,10 +1202,14 @@ def fila_identidad(e: Entrada, act: Actividad, nivel: int) -> Fila:
     if e.lineas is not None and nivel <= 0:
         lineas = (texto("+", "texto secundario") + texto(str(e.lineas[0]), "texto principal")
                   + texto(" −", "texto secundario") + texto(str(e.lineas[1]), "texto principal"))
-    return _bloques([modelo, carpeta, rama, pr, lineas])
+    return [modelo, carpeta, rama, pr, lineas]
 
 
-def fila_contexto(e: Entrada, nivel: int) -> Fila:
+def fila_identidad(e: Entrada, act: Actividad, nivel: int) -> Fila:
+    return _bloques(bloques_identidad(e, act, nivel))
+
+
+def bloques_contexto(e: Entrada, nivel: int) -> list[Fila | None]:
     ctx = cache = None
     if e.contexto_pct is not None:
         tok = token_medidor(e.contexto_pct, 75, 90)
@@ -1189,10 +1218,14 @@ def fila_contexto(e: Entrada, nivel: int) -> Fila:
             ctx += barra_contexto(e.contexto_pct, UMBRAL_AUTOCOMPACT_PCT, 20 if nivel <= 2 else 10, tok) + texto(" ", "apagado")
         ctx += texto(_pct(e.contexto_pct), tok)
     if e.cache_observada and e.cache_aciertos is not None:
-        cache = texto("󰆼 ", "texto secundario") + texto(_pct(e.cache_aciertos * 100), "texto principal")
+        cache = texto(ICONO_CACHE + " ", "texto secundario") + texto(_pct(e.cache_aciertos * 100), "texto principal")
         if e.cache_fallos > 0 and nivel <= 1:
             cache += texto(f" · {e.cache_fallos} fallos", "texto secundario")
-    return _bloques([ctx, cache, _bloque_costo(e, nivel) if nivel <= NIVEL_MAX_ESPERADO else None])
+    return [ctx, cache, _bloque_costo(e, nivel) if nivel <= NIVEL_MAX_ESPERADO else None]
+
+
+def fila_contexto(e: Entrada, nivel: int) -> Fila:
+    return _bloques(bloques_contexto(e, nivel))
 
 
 DURACION_5H = 5 * 3600.0
@@ -1249,18 +1282,39 @@ def _ventana_fila(v: Ventana | None, etiqueta: str, nivel: int, con_dia: bool) -
     return f
 
 
-def fila_ventanas(e: Entrada, nivel: int) -> Fila:
+def bloques_ventanas(e: Entrada, nivel: int) -> list[Fila | None]:
     cinco = _ventana_fila(e.cinco_h, "5 h", nivel, con_dia=False)
     siete = _ventana_fila(e.siete_d, "7 d", nivel, con_dia=True)
-    return _bloques([cinco, siete, _bloque_costo(e, nivel) if nivel > NIVEL_MAX_ESPERADO else None])
+    return [cinco, siete, _bloque_costo(e, nivel) if nivel > NIVEL_MAX_ESPERADO else None]
+
+
+def fila_ventanas(e: Entrada, nivel: int) -> Fila:
+    return _bloques(bloques_ventanas(e, nivel))
 
 
 def _bloque_costo(e: Entrada, nivel: int) -> Fila | None:
     return texto("$" + _costo(e.costo), "texto principal") if e.costo is not None and nivel <= 3 else None
 
 
+def _emparejar(filas: list[list[Fila | None]]) -> Grilla:
+    """El último bloque de cada fila se corre hasta el borde de la más ancha, y el aire se junta justo antes de
+    él: así el tablero tiene los dos bordes parejos sin mover nada más. Una fila de un solo bloque no tiene
+    dónde juntar el aire y se queda a la izquierda."""
+    naturales = [_bloques(f) for f in filas]
+    borde = max((len(f) for f in naturales), default=0)
+    grilla = []
+    for bloques, natural in zip(filas, naturales):
+        presentes = [b for b in bloques if b]
+        if len(presentes) < 2:
+            grilla.append(natural)
+            continue
+        ultimo = presentes[-1]
+        grilla.append(natural[:-len(ultimo)] + fila_vacia(borde - len(natural)) + ultimo)
+    return grilla
+
+
 def dibujar_tablero(e: Entrada, act: Actividad, nivel: int) -> Grilla:
-    return [fila_identidad(e, act, nivel), fila_contexto(e, nivel), fila_ventanas(e, nivel)]
+    return _emparejar([bloques_identidad(e, act, nivel), bloques_contexto(e, nivel), bloques_ventanas(e, nivel)])
 
 
 # ══════════════════════════════════════════════════════════════════ PLEGADO
@@ -1354,6 +1408,7 @@ def correr(crudo: bytes, ahora: float, ancho: int) -> str:
         poner_ritmo(e.cinco_h, DURACION_5H, ahora)
         poner_ritmo(e.siete_d, DURACION_7D, ahora)
         act = leer_actividad(e.transcript_path, e.session_id, ahora, e.contexto_total)
+        heredar_modelo(act, e.modelo)
         grilla = componer_que_entre(e, act, int(ahora), ancho)
         return "\n".join(pintar_fila(f) for f in grilla)
     except Exception:

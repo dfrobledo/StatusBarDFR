@@ -148,10 +148,10 @@ def aviso_tarea(task_id, t, estado="completed", monitor=False):
     return {"type": "queue-operation", "operation": "enqueue", "timestamp": iso(t), "content": xml}
 
 
-def amigo(tid, entradas, nace, mtime, agent_id=None, tipo="Explore", descripcion="Revisar", fondo=True):
-    """Un subagente de la carpeta `subagents`: su .meta.json y su .jsonl."""
+def amigo(tid, entradas, nace, mtime, agent_id=None, tipo="Explore", descripcion="Revisar", fondo=True, modelo="opus"):
+    """Un subagente de la carpeta `subagents`: su .meta.json y su .jsonl. `modelo=None` lo deja sin campo `model`."""
     return dict(tid=tid, entradas=entradas, nace=nace, mtime=mtime, tipo=tipo, descripcion=descripcion,
-                fondo=fondo, agent_id=agent_id or id_agente(tid))
+                fondo=fondo, agent_id=agent_id or id_agente(tid), modelo=modelo)
 
 
 def oficina(tmp_path, principal=(), amigos=()):
@@ -163,7 +163,9 @@ def oficina(tmp_path, principal=(), amigos=()):
     sub.mkdir(parents=True, exist_ok=True)
     for am in amigos:
         meta = {"agentType": am["tipo"], "description": am["descripcion"], "toolUseId": am["tid"],
-                "spawnDepth": 1, "model": "opus"}
+                "spawnDepth": 1}
+        if am["modelo"] is not None:
+            meta["model"] = am["modelo"]
         if am["fondo"]:
             meta["requestShape"] = "background"
             meta["requestNonInteractive"] = True

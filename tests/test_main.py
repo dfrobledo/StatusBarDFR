@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -78,20 +79,14 @@ def test_nivel_sube_si_la_grilla_no_entra_en_el_ancho(tmp_path):
     assert grilla_200 != grilla_0                  # a 200 se dibuja el peldaño -1, no el nivel 0
 
 
-MAXIMO_DESPAREJO_ENTRE_FILAS = 20  # cota: la desparejo medida entre 47 y 240 llega a 16 (a 202, 190/186/202)
-
-
 def test_no_queda_una_columna_muerta_a_ningun_ancho(tmp_path):
     """La propiedad que persigue el proyecto, como test de rango: cubre los anchos que no son peldaños,
     que es donde vive el elástico. Arranca en 47 (el ancho del nivel 4, el layout más plegado que existe);
     por debajo no hay nada que repartir y la línea desborda, que es el comportamiento de hoy.
 
-    Lo que NO prueba: `ancho_de_grilla` es un `max`, así que la primera aserción sólo fija que la fila
-    MÁS ANCHA llega al borde derecho, no que ninguna columna quede muerta — el tablero nunca rellenó sus
-    filas a un ancho común, así que la grilla es despareja (medido: hasta 16 columnas, a 202 columnas
-    190/186/202). La segunda aserción acota esa desparejo a un máximo de MAXIMO_DESPAREJO_ENTRE_FILAS (20,
-    redondo por encima del máximo medido) para que no pueda crecer sin que algún test lo note, pero no la
-    elimina: eso requeriría tocar el layout, que esta ronda no toca. Tampoco prueba que
+    `ancho_de_grilla` es un `max`, así que la primera aserción sólo fija que la fila MÁS ANCHA llega al borde
+    derecho; la segunda, que las tres llegan (el tablero llegó a dejar hasta 16 columnas de desparejo, a 202
+    columnas 190/186/202, hasta que el último bloque de cada fila se corrió al borde). Lo que NO prueba es que
     ANCHO_ESCRITORIO_MAX esté bien puesto: la identidad de conservación que arma `repartir_sobrante` vale
     por construcción para cualquier ancho de escritorio, tope incluido o no; lo que protege el valor
     exacto del tope son las aserciones numéricas de `test_repartir_sobrante_respeta_el_tope_de_20`, no
@@ -106,9 +101,7 @@ def test_no_queda_una_columna_muerta_a_ningun_ancho(tmp_path):
             g = sl.componer_que_entre(e, act, int(T0), ancho)
             assert sl.ancho_de_grilla(g) == ancho, f"a {ancho} columnas la grilla mide {sl.ancho_de_grilla(g)}"
             anchos = anchos_de_filas(g)
-            despareja = max(anchos) - min(anchos)
-            assert despareja <= MAXIMO_DESPAREJO_ENTRE_FILAS, (
-                f"a {ancho} columnas las filas difieren en {despareja} ({anchos}), por encima de la cota")
+            assert len(set(anchos)) == 1, f"a {ancho} columnas las filas no llegan parejas al borde: {anchos}"
 
 
 def _con_ritmo(e):
@@ -281,3 +274,10 @@ def test_dorados_con_ritmo_y_tareas(tmp_path):
         verificar_tokens(g)
         assert sl.ancho_de_grilla(g) == ancho
         golden(f"ritmo_tareas_{ancho}", g)
+
+
+def test_el_amigo_sin_modelo_propio_lleva_la_letra_del_de_la_sesion(tmp_path):
+    """El meta del amigo no trae `model`: la corrida completa le pone el de la sesión antes de dibujar."""
+    salida = sl.correr(sesion(tmp_path), T0, 165)
+    primera = re.sub(r"\x1b\[[0-9;]*m", "", salida.split("\n")[0])
+    assert "╭─◉◉╮ O " in primera, primera

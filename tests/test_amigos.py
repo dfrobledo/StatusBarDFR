@@ -252,3 +252,24 @@ def test_dos_amigos_toman_escritorios_distintos_en_orden_de_nacimiento(tmp_path)
     act = sl.leer_actividad(ruta, "s1", T0 + 60)
     assert [(am.id, am.escritorio, am.pose) for am in act.amigos] == \
         [("ag1", 0, sl.LEYENDO), ("ag2", 1, sl.EJECUTANDO)]
+
+
+# ── el modelo de cada amigo ────────────────────────────────────────────
+def test_el_modelo_sale_del_meta(tmp_path):
+    ruta = oficina(tmp_path, [], [amigo("ag1", [tool_use("x1", "Grep", {"pattern": "p"}, T0 + 5)],
+                                        nace=T0, mtime=T0 + 5, modelo="sonnet")])
+    assert sl.leer_actividad(ruta, "s1", T0 + 10).amigos[0].modelo == "sonnet"
+
+
+def test_sin_meta_el_modelo_sale_del_despacho(tmp_path):
+    """El amigo recién despachado todavía no escribió su .meta.json: el `model` del propio `Agent` lo nombra."""
+    principal = [tool_use("t1", "Agent", {"subagent_type": "Explore", "description": "Buscar", "model": "haiku"}, T0)]
+    ruta = oficina(tmp_path, principal, [])
+    assert sl.leer_actividad(ruta, "s1", T0 + 10).amigos[0].modelo == "haiku"
+
+
+def test_el_que_hereda_toma_el_modelo_de_la_sesion():
+    """`inherit` (3 de 607 metas medidos), un meta sin `model` o un despacho sin él: corre con el de la sesión."""
+    act = sl.Actividad(amigos=[sl.Amigo("a", "explore", "explore", modelo=m) for m in ("inherit", "", "fable")])
+    sl.heredar_modelo(act, "Opus 5.5")
+    assert [am.modelo for am in act.amigos] == ["Opus 5.5", "Opus 5.5", "fable"]

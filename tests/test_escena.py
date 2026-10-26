@@ -125,17 +125,41 @@ def test_amigo_sin_leyenda_en_10_columnas():
     assert cuadro(g).split("\n")[0].startswith("╭") and "explore" not in cuadro(g)
 
 
-def test_amigo_ancho_muestra_nombre_y_leyenda():
-    g = sl.escritorio_amigo(amigo(nombre="explore", leyenda="pose"), 0, 20, con_leyenda=True)
+def test_amigo_ancho_muestra_el_encargo_hasta_dejar_aire():
+    am = amigo(leyenda="pose")
+    am.modelo, am.descripcion = "opus", "Revisar"
+    g = sl.escritorio_amigo(am, 0, 20, con_leyenda=True)
     assert [len(f) for f in g] == [20, 20, 20]
-    assert cuadro(g).split("\n")[0][6:] == "explore pose"
+    assert cuadro(g).split("\n")[0][6:] == "O Revisar"
 
 
 def test_amigo_en_el_ancho_base_trunca_a_seis_y_deja_aire():
     g = sl.escritorio_amigo(amigo(nombre="explore", leyenda="pose"), 0, 13, con_leyenda=True)
     assert cuadro(g).split("\n")[0][6:] == "explor"  # la columna 12 es el aire antes del vecino
-    corto = sl.escritorio_amigo(amigo(nombre="plan", leyenda="pose"), 0, 13, con_leyenda=True)
-    assert cuadro(corto).split("\n")[0][6:] == "plan p"  # una sola regla: se trunca, no se corta en palabra
+    corto = amigo(nombre="plan", leyenda="pose")
+    corto.descripcion = "Plan de prueba"
+    corto = sl.escritorio_amigo(corto, 0, 13, con_leyenda=True)
+    assert cuadro(corto).split("\n")[0][6:] == "Plan d"  # una sola regla: se trunca, no se corta en palabra
+
+
+def test_amigo_rotula_la_letra_de_su_modelo_y_su_encargo():
+    """La letra del modelo, en el color de su familia, y la descripción con que se lo despachó: qué le pidieron,
+    no lo que hace este segundo (eso ya lo dice la tableta)."""
+    am = amigo(leyenda="pose")
+    am.modelo, am.descripcion = "sonnet", "Buscar el bug de la caché"
+    g = sl.escritorio_amigo(am, 0, 20, con_leyenda=True)
+    assert cuadro(g).split("\n")[0][6:] == "S Buscar el b"
+    assert g[0][6] == ("S", "modelo sonnet") and g[0][8] == ("B", "texto principal")
+    g = sl.escritorio_amigo(am, 0, 13, con_leyenda=True)
+    assert cuadro(g).split("\n")[0][6:] == "S Busc"
+
+
+def test_amigo_sin_modelo_conocido_ni_encargo():
+    am = amigo(leyenda="pose")
+    am.modelo, am.descripcion = "", "Buscar"
+    assert cuadro(sl.escritorio_amigo(am, 0, 20, con_leyenda=True)).split("\n")[0][6:] == "Buscar"
+    am.modelo, am.descripcion = "Opus 5.5", ""  # sin encargo queda su tipo
+    assert cuadro(sl.escritorio_amigo(am, 0, 20, con_leyenda=True)).split("\n")[0][6:] == "O explore"
 
 
 def test_amigo_sin_leyenda_no_deja_espacio_colgando():
@@ -304,6 +328,8 @@ def test_entre_escritorios_queda_una_columna_de_aire():
 
 def test_dorado_de_la_escena_del_peldano_nuevo():
     amigos = [amigo(id_=f"a{i}", escritorio=i, nombre=f"amigo{i}"[:7], leyenda="pose") for i in range(6)]
+    for am, modelo in zip(amigos, ("opus", "sonnet", "haiku", "fable", "", "Opus 5.5")):
+        am.modelo, am.descripcion = modelo, f"Encargo número {am.escritorio}"
     g = sl.dibujar_escena(act(sl.DELEGANDO, "··", "Agent", amigos), sl.Humor(), 0, -1, 19)
     verificar_tokens(g)
     assert [len(f) for f in g] == [22 + 6 * 19] * 3
