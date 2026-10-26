@@ -899,7 +899,7 @@ PATAS = {  # (cuerpo, pies), 7 celdas desde idx 1; el `┬` del cuerpo empalma c
 }
 PATAS_POR_POSE = {DORMIDO: "agachado", COMPACTANDO: "agachado", ESCRIBIENDO: "salto"}
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧"
-ANCHO_LEYENDA_CLAWD = 12
+ANCHO_LEYENDA_CLAWD = 11  # arranca en la columna 10 y deja libre la 21, la última: aire antes del primer amigo
 
 
 class Humor(_Registro):
@@ -1041,8 +1041,9 @@ def escritorio_amigo(am: Amigo | None, seg: int, ancho: int, con_leyenda: bool, 
     cabeza = CABEZA_AMIGO.get(am.pose, CABEZA_AMIGO_HERRAMIENTA)
     poner(f1, 0, cabeza[s % len(cabeza)], tok)
     if con_leyenda:
+        # la última columna queda libre: sin ella la leyenda se pega a la cabeza del escritorio vecino
         etiqueta = f"{am.nombre} {am.leyenda}".rstrip()
-        poner(f1, TEXTO_EN_ESCRITORIO, etiqueta[:max(0, ancho - TEXTO_EN_ESCRITORIO)], "texto principal")
+        poner(f1, TEXTO_EN_ESCRITORIO, etiqueta[:max(0, ancho - TEXTO_EN_ESCRITORIO - 1)], "texto principal")
     patas = PATAS_AMIGO["salto" if am.pose == ESCRIBIENDO else "parado"]
     cuerpo, pies = patas[s % len(patas)]
     for i, c in enumerate(cuerpo):

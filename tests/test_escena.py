@@ -32,7 +32,7 @@ def test_clawd_mide_3x22_y_solo_usa_tokens():
 def test_clawd_leyendo_read():
     g = sl.escritorio_clawd(act(sl.LEYENDO, "statusline.py", "Read"), sl.Humor(cafe="tibio"), 0)
     assert cuadro(g) == "\n".join([
-        " ╭──◉◉─╮  statusline.p",
+        " ╭──◉◉─╮  statusline.",
         " ╰─┬─┬─╯ ▕󰈙▏󰅶",
         "━━━┻━┻━━━━━━━━━━━━━━━━",
     ])
@@ -80,7 +80,7 @@ def test_clawd_compactando():
 
 def test_clawd_humor_completo():
     g = sl.escritorio_clawd(act(sl.NAVEGANDO, "docs.claude.com", "WebFetch"), sl.Humor(2, "frio", "critico"), 0)
-    assert cuadro(g).split("\n")[:2] == [" ╭──◉◉─╮󰖌󰖌docs.claude.", " ╰─┬─┬─╯ ▕󰖟▏󰛊 󰔟"]
+    assert cuadro(g).split("\n")[:2] == [" ╭──◉◉─╮󰖌󰖌docs.claude", " ╰─┬─┬─╯ ▕󰖟▏󰛊 󰔟"]
     assert g[0][8] == ("󰖌", "frio") and g[1][12] == ("󰛊", "frio") and g[1][14] == ("󰔟", "critico")
 
 
@@ -114,7 +114,7 @@ def test_amigo_ocupado_con_leyenda():
     am = amigo()
     s = sum(map(ord, am.id))  # fase 0 de su parpadeo
     g = sl.escritorio_amigo(am, -s, 13, con_leyenda=True)
-    assert cuadro(g).split("\n") == ["╭─◉◉╮ explore", "╰┬─┬╯▕󰍉▏ 󰥟", "━┻━┻━━━━━┻━━━"]
+    assert cuadro(g).split("\n") == ["╭─◉◉╮ explor", "╰┬─┬╯▕󰍉▏ 󰥟", "━┻━┻━━━━━┻━━━"]
     assert g[0][0] == ("╭", "amigo explore") and g[1][9] == ("󰥟", "lampara encendida")
     assert g[2][1] == ("┻", "amigo explore")
 
@@ -131,11 +131,11 @@ def test_amigo_ancho_muestra_nombre_y_leyenda():
     assert cuadro(g).split("\n")[0][6:] == "explore pose"
 
 
-def test_amigo_en_el_ancho_base_trunca_a_siete_como_hoy():
+def test_amigo_en_el_ancho_base_trunca_a_seis_y_deja_aire():
     g = sl.escritorio_amigo(amigo(nombre="explore", leyenda="pose"), 0, 13, con_leyenda=True)
-    assert cuadro(g).split("\n")[0][6:] == "explore"
+    assert cuadro(g).split("\n")[0][6:] == "explor"  # la columna 12 es el aire antes del vecino
     corto = sl.escritorio_amigo(amigo(nombre="plan", leyenda="pose"), 0, 13, con_leyenda=True)
-    assert cuadro(corto).split("\n")[0][6:] == "plan po"  # una sola regla: se trunca, no se corta en palabra
+    assert cuadro(corto).split("\n")[0][6:] == "plan p"  # una sola regla: se trunca, no se corta en palabra
 
 
 def test_amigo_sin_leyenda_no_deja_espacio_colgando():
@@ -283,6 +283,23 @@ def test_cada_pata_apoya_en_un_pie():
                 patas = {i for i, ch in enumerate(cuerpo) if ch == "┬"}
                 apoyos = {i for i, ch in enumerate(pies) if ch == "┻"}
                 assert patas <= apoyos, (nombre, cuerpo, pies, sorted(patas - apoyos))
+
+
+def test_entre_escritorios_queda_una_columna_de_aire():
+    """A 165 se leía `explore╭─◉◉╮ general╭─◉◉╮`: cada leyenda llenaba su escritorio hasta el borde y quedaba
+    pegada a la cabeza del vecino. La última columna de cada escritorio, y la de Clawd, va en blanco en la fila
+    de las leyendas, con nombres y leyendas largos, a todo ancho elástico, con desborde y con tareas."""
+    largos = [amigo(id_=f"a{i}", escritorio=i, nombre="general", leyenda="statusline.py") for i in range(7)]
+    for nivel in (-1, 0):
+        n = sl.ESCRITORIOS_POR_NIVEL[nivel]
+        for ancho in range(sl.ANCHO_ESCRITORIO[nivel], sl.ANCHO_ESCRITORIO_MAX + 1):
+            for scripts in (0, 2):
+                a = act(sl.LEYENDO, "statusline_largo.py", "Read", largos)
+                a.scripts = scripts
+                fila = sl.dibujar_escena(a, sl.Humor(), 0, nivel, ancho)[0]
+                for k in range(n + 1):
+                    borde = sl.ANCHO_CLAWD + k * ancho - 1
+                    assert fila[borde][0] == " ", (nivel, ancho, scripts, k, cuadro([fila]))
 
 
 def test_dorado_de_la_escena_del_peldano_nuevo():
