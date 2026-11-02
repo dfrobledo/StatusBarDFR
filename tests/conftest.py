@@ -89,22 +89,33 @@ def id_agente(tid):
     return ("a" + str(tid).rjust(16, "0"))[:17]
 
 
-def notificacion(tool_use_id, t, agent_id=None, estado="completed", tipo="queue-operation"):
+def notificacion(tool_use_id, t, agent_id=None, estado="completed", tipo="queue-operation", esperando=False):
     """`<task-notification>` tal como la escribe Claude Code 2.1.274 (forma medida sobre transcripts reales).
     Llega por duplicado: como `queue-operation` (enqueue y después remove) y como `attachment`.
     El `<task-id>` es el agentId y es lo ESTABLE; el `<tool-use-id>` es el del mensaje que provocó esta
-    parada, así que cambia en cada reanudación y no sirve de llave."""
+    parada, así que cambia en cada reanudación y no sirve de llave.
+
+    `esperando`: la variante de 2.1.316 para el agente que paró con trabajo de fondo propio todavía corriendo
+    (copiada de una sesión real de RockAvionics el 2026-11-01): `completed`, pero no terminó."""
     if agent_id is None:
         agent_id = id_agente(tool_use_id)
+    if esperando:
+        resumen = 'Agent "x" is waiting on its own background work'
+        nota = ("This agent stopped with background work of its own still running. It may resume on its own when "
+                "that work completes or reports, and the same task-id notifies again if it does; the result below "
+                "may be interim.")
+    else:
+        resumen = 'Agent "x" finished'
+        nota = ("A task-notification fires each time this agent stops with no live background children of its own. "
+                "The user can send it another message and resume it, so the same task-id may notify more than once.")
     xml = "\n".join([
         "<task-notification>",
         f"<task-id>{agent_id}</task-id>",
         f"<tool-use-id>{tool_use_id}</tool-use-id>",
         f"<output-file>C:\\x\\{agent_id}.output</output-file>",
         f"<status>{estado}</status>",
-        '<summary>Agent "x" finished</summary>',
-        "<note>A task-notification fires each time this agent stops with no live background children of its own. "
-        "The user can send it another message and resume it, so the same task-id may notify more than once.</note>",
+        f"<summary>{resumen}</summary>",
+        f"<note>{nota}</note>",
         "</task-notification>",
     ])
     if tipo == "queue-operation":

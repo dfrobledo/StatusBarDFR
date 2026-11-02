@@ -645,6 +645,10 @@ VENTANA_NOTIFICACIONES = 1_048_576
 # Los tres estados con los que termina algo de fondo (medidos el 2026-10-25 en 2.1.310). Un agente que falla
 # notifica `failed` («Agent terminated») y no vuelve a escribir; antes sólo `completed` apagaba el escritorio.
 ESTADOS_FINALES = ("completed", "failed", "killed")
+# ...salvo un `completed` con este cierre de resumen (2.1.316): el agente cortó su turno para esperar trabajo de fondo
+# propio y Claude Code promete otra notificación con el mismo task-id. El resumen es `Agent "<descripción>" <estado>`,
+# así que la comilla y el `</summary>` lo anclan al estado y no a una descripción que diga lo mismo.
+CIERRE_ESPERA = '" is waiting on its own background work</summary>'
 MARCAS_AVISO = (b"<task-notification>", b'"backgroundTaskId"', b'"timeoutMs"')
 RE_TIMESTAMP = re.compile(rb'"timestamp":\s*"([^"]+)"')
 # Para saber si un amigo está parado alcanza con su última entrada, que es un bloque de texto chico; si una
@@ -722,7 +726,10 @@ def leer_avisos(ruta: str) -> Avisos:
                 av.con_eventos[id_] = ts
         elif estado.group(1) in ESTADOS_FINALES:
             destino = av.fines_tareas if RE_ID_TAREA.fullmatch(id_) else av.fines
-            destino[id_] = max(destino.get(id_, 0.0), ts)
+            if CIERRE_ESPERA in c:
+                destino.pop(id_, None)  # reemplaza al fin anterior del mismo task-id, que era de otra vuelta
+            else:
+                destino[id_] = max(destino.get(id_, 0.0), ts)
     return av
 
 

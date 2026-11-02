@@ -223,6 +223,38 @@ def test_failed_y_killed_con_el_amigo_parado_apagan(tmp_path):
         assert sl.leer_actividad(ruta, "s1", T0 + 64).amigos == [], estado
 
 
+# ── fin: la espera de su propio trabajo de fondo (2.1.316) ─────────────
+def test_el_amigo_que_espera_su_trabajo_de_fondo_sigue_en_su_escritorio(tmp_path):
+    """El fantasma que se vio en vivo el 2026-11-01 en RockAvionics: Claude Code mostraba al agente trabajando y la
+    oficina estaba vacía. El agente había lanzado la suite de tests de fondo y cortado su turno con un `end_turn` para
+    esperarla; Claude Code avisa eso con una notificación `completed` cuyo resumen dice «is waiting on its own background
+    work» y que promete otra con el mismo task-id. Notificó Y está parado, así que el escritorio se apagaba a los 2 s.
+    El control es `test_notificacion_completed_apaga_el_escritorio`: la misma oficina con el resumen «finished»."""
+    principal = [notificacion("ag1", T0 + 61, esperando=True)]
+    ruta = oficina(tmp_path, principal, [amigo("ag1", [texto_final(T0 + 60)], nace=T0, mtime=T0 + 60)])
+    act = sl.leer_actividad(ruta, "s1", T0 + 64)
+    assert [(am.id, am.terminado_hace) for am in act.amigos] == [("ag1", None)]
+
+
+def test_la_espera_anula_el_fin_que_vino_antes(tmp_path):
+    """La notificación nueva reemplaza a la anterior del mismo task-id (lo dice el propio Claude Code). Un agente que
+    terminó, fue reanudado y ahora espera su trabajo de fondo no puede heredar el fin de la primera vuelta."""
+    entradas = [texto_final(T0 + 60), prompt_usuario(T0 + 150), texto_final(T0 + 200, msg="msg_f2")]
+    principal = [notificacion("ag1", T0 + 61), notificacion("otro", T0 + 201, agent_id=id_agente("ag1"), esperando=True)]
+    ruta = oficina(tmp_path, principal, [amigo("ag1", entradas, nace=T0, mtime=T0 + 200)])
+    act = sl.leer_actividad(ruta, "s1", T0 + 205)
+    assert [(am.id, am.terminado_hace) for am in act.amigos] == [("ag1", None)]
+
+
+def test_el_fin_que_llega_despues_de_la_espera_apaga(tmp_path):
+    """La cota de arriba: esperar no es inmunidad. Cuando el trabajo de fondo termina, el agente sigue, entrega y
+    notifica «finished» con el mismo task-id; ése sí apaga el escritorio."""
+    entradas = [texto_final(T0 + 60), prompt_usuario(T0 + 150), texto_final(T0 + 300, msg="msg_f2")]
+    principal = [notificacion("ag1", T0 + 61, esperando=True), notificacion("otro", T0 + 301, agent_id=id_agente("ag1"))]
+    ruta = oficina(tmp_path, principal, [amigo("ag1", entradas, nace=T0, mtime=T0 + 300)])
+    assert sl.leer_actividad(ruta, "s1", T0 + 304).amigos == []
+
+
 # ── fin: end_turn ya no alcanza ────────────────────────────────────────
 def test_end_turn_por_si_solo_no_mata_al_amigo(tmp_path):
     """70 de 218 agentes reales tienen un `end_turn` que no es el final: el coordinador les manda otro mensaje
