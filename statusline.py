@@ -1126,6 +1126,17 @@ def token_medidor(pct: float, aviso: float, critico: float) -> str:
     return "critico" if pct >= critico else "aviso" if pct >= aviso else "texto principal"
 
 
+# Topes por tramo del contexto, sobre la cifra que se muestra (entera): el color nunca contradice el número. Pensados
+# para la ventana de un millón: el rojo arranca cerca de 260 mil tokens. Los colores son los del ritmo de las ventanas.
+CONTEXTO_AZUL, CONTEXTO_VERDE, CONTEXTO_AMARILLO = 15, 20, 25
+
+
+def token_contexto(pct: float) -> str:
+    cifra = round(pct)  # el mismo redondeo que _pct
+    return ("ritmo bajo" if cifra <= CONTEXTO_AZUL else "bien" if cifra <= CONTEXTO_VERDE
+            else "aviso" if cifra <= CONTEXTO_AMARILLO else "critico")
+
+
 def torta(pct: float) -> str:
     if pct <= 0:
         return "○"
@@ -1216,14 +1227,17 @@ def fila_identidad(e: Entrada, act: Actividad, nivel: int) -> Fila:
     return _bloques(bloques_identidad(e, act, nivel))
 
 
-def bloques_contexto(e: Entrada, nivel: int) -> list[Fila | None]:
+def bloques_contexto(e: Entrada, nivel: int, seg: int = 0) -> list[Fila | None]:
     ctx = cache = None
     if e.contexto_pct is not None:
-        tok = token_medidor(e.contexto_pct, 75, 90)
+        tok = token_contexto(e.contexto_pct)
+        # En rojo parpadea sólo el número, un segundo prendido y uno apagado. Por software porque el parpadeo del
+        # terminal (SGR 5) no llega: Claude Code lo reconoce al leer la línea pero no lo vuelve a emitir al pintarla.
+        tok_numero = "apagado" if tok == "critico" and seg % 2 else tok
         ctx = texto("󰃥 ", "texto secundario")
         if nivel <= 3:
             ctx += barra_contexto(e.contexto_pct, UMBRAL_AUTOCOMPACT_PCT, 20 if nivel <= 2 else 10, tok) + texto(" ", "apagado")
-        ctx += texto(_pct(e.contexto_pct), tok)
+        ctx += texto(_pct(e.contexto_pct), tok_numero)
     if e.cache_observada and e.cache_aciertos is not None:
         cache = texto(ICONO_CACHE + " ", "texto secundario") + texto(_pct(e.cache_aciertos * 100), "texto principal")
         if e.cache_fallos > 0 and nivel <= 1:
@@ -1231,8 +1245,8 @@ def bloques_contexto(e: Entrada, nivel: int) -> list[Fila | None]:
     return [ctx, cache, _bloque_costo(e, nivel) if nivel <= NIVEL_MAX_ESPERADO else None]
 
 
-def fila_contexto(e: Entrada, nivel: int) -> Fila:
-    return _bloques(bloques_contexto(e, nivel))
+def fila_contexto(e: Entrada, nivel: int, seg: int = 0) -> Fila:
+    return _bloques(bloques_contexto(e, nivel, seg))
 
 
 DURACION_5H = 5 * 3600.0
@@ -1320,8 +1334,8 @@ def _emparejar(filas: list[list[Fila | None]]) -> Grilla:
     return grilla
 
 
-def dibujar_tablero(e: Entrada, act: Actividad, nivel: int) -> Grilla:
-    return _emparejar([bloques_identidad(e, act, nivel), bloques_contexto(e, nivel), bloques_ventanas(e, nivel)])
+def dibujar_tablero(e: Entrada, act: Actividad, nivel: int, seg: int = 0) -> Grilla:
+    return _emparejar([bloques_identidad(e, act, nivel), bloques_contexto(e, nivel, seg), bloques_ventanas(e, nivel)])
 
 
 # ══════════════════════════════════════════════════════════════════ PLEGADO
@@ -1387,7 +1401,7 @@ def respaldo(modelo: str, carpeta: str) -> Fila:
 def componer(e: Entrada, act: Actividad, seg: int, nivel: int,
              ancho_escritorio: int | None = None, hueco: int = HUECO_MIN) -> Grilla:
     return unir(dibujar_escena(act, humor_de(e), seg, nivel, ancho_escritorio),
-                dibujar_tablero(e, act, nivel), hueco)
+                dibujar_tablero(e, act, nivel, seg), hueco)
 
 
 def componer_que_entre(e: Entrada, act: Actividad, seg: int, ancho: int) -> Grilla:
@@ -1398,7 +1412,7 @@ def componer_que_entre(e: Entrada, act: Actividad, seg: int, ancho: int) -> Gril
     una sola vez: su ancho medido es lo que come el hueco."""
     nivel = elegir_nivel(ancho)
     while True:
-        tablero = dibujar_tablero(e, act, nivel)
+        tablero = dibujar_tablero(e, act, nivel, seg)
         ancho_escritorio, hueco = repartir_sobrante(ancho, nivel, ancho_de_grilla(tablero))
         grilla = unir(dibujar_escena(act, humor_de(e), seg, nivel, ancho_escritorio), tablero, hueco)
         if nivel >= 4 or ancho_de_grilla(grilla) <= ancho:

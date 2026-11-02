@@ -75,11 +75,57 @@ def test_fila_contexto_completa_y_niveles():
     assert plano(sl.fila_contexto(entrada(), 4)) == "󰃥  41%   󱐋  78%"
 
 
+def test_color_del_contexto_por_umbrales():
+    assert [sl.token_contexto(p) for p in (0, 10, 15, 15.4)] == ["ritmo bajo"] * 4
+    assert [sl.token_contexto(p) for p in (15.6, 16, 20, 20.4)] == ["bien"] * 4
+    assert [sl.token_contexto(p) for p in (20.6, 21, 25, 25.4)] == ["aviso"] * 4
+    assert [sl.token_contexto(p) for p in (25.6, 26, 41.4, 100)] == ["critico"] * 4
+
+
+def test_el_color_del_contexto_nunca_contradice_la_cifra():
+    """El umbral se mide sobre el número que se ve: un 15,5 % que se muestra «16%» va en verde, no en azul."""
+    tramos = ((15, "ritmo bajo"), (20, "bien"), (25, "aviso"), (101, "critico"))
+    for decimas in range(1001):
+        p = decimas / 10
+        cifra = int(sl._pct(p).strip(" %"))
+        esperado = next(tok for tope, tok in tramos if cifra <= tope)
+        assert sl.token_contexto(p) == esperado, (p, cifra)
+
+
 def test_fila_contexto_colorea_barra_y_numero_juntos():
-    f = sl.fila_contexto(entrada(contexto_pct=91, cache_observada=False, costo=None), 0)
-    assert f[2][1] == "critico" and f[-1][1] == "critico"  # primera celda llena y el "%"
-    f = sl.fila_contexto(entrada(contexto_pct=76, cache_observada=False, costo=None), 0)
-    assert f[2][1] == "aviso" and f[-1][1] == "aviso"
+    for pct, tok in ((10, "ritmo bajo"), (18, "bien"), (23, "aviso"), (41, "critico")):
+        f = sl.fila_contexto(entrada(contexto_pct=pct, cache_observada=False, costo=None), 0)
+        assert f[2][1] == tok and f[-1][1] == tok, pct  # primera celda llena y el "%"
+
+
+def test_en_rojo_parpadea_solo_el_numero():
+    """El parpadeo del terminal (SGR 5) no llega: Claude Code lo reconoce pero no lo vuelve a emitir (2.1.316,
+    medido en vivo). Se parpadea por software, un segundo prendido y uno apagado; la barra se queda fija."""
+    e = entrada(contexto_pct=41, cache_observada=False, costo=None)
+    prendido, apagado = sl.fila_contexto(e, 0, seg=10), sl.fila_contexto(e, 0, seg=11)
+    assert plano(prendido) == plano(apagado)  # cambia el color, nunca el ancho
+    numero = slice(-4, None)
+    assert {t for _, t in prendido[numero] if _ != " "} == {"critico"}
+    assert {t for _, t in apagado[numero] if _ != " "} == {"apagado"}
+    assert prendido[:-4] == apagado[:-4]  # la barra no se entera
+
+
+def test_fuera_del_rojo_no_parpadea():
+    for pct in (10, 18, 23):
+        e = entrada(contexto_pct=pct, cache_observada=False, costo=None)
+        assert sl.fila_contexto(e, 0, seg=10) == sl.fila_contexto(e, 0, seg=11), pct
+
+
+def test_el_segundo_llega_del_compositor_al_numero():
+    e = entrada(contexto_pct=41, cache_observada=False, costo=None)
+
+    def tok_del_numero(grilla):
+        fila = grilla[1]
+        return fila[next(i for i, (c, _) in enumerate(fila) if c == "%")][1]
+
+    assert tok_del_numero(sl.dibujar_tablero(e, ACT, 0, seg=11)) == "apagado"
+    assert tok_del_numero(sl.componer_que_entre(e, ACT, 10, 160)) == "critico"
+    assert tok_del_numero(sl.componer_que_entre(e, ACT, 11, 160)) == "apagado"
 
 
 def test_fila_contexto_sin_datos():

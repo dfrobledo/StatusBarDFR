@@ -81,6 +81,16 @@ cada uno con su contador cuando hay más de uno.
 - Uso de las ventanas de **5 horas** y **7 días**, con la hora a la que se reinicia cada una y, entre paréntesis,
   cuánto tocaría llevar consumido a esta hora si el uso fuera parejo hasta el reinicio: `58% (40%)`.
 
+La barra y el porcentaje del contexto se pintan según la cifra que se muestra, con topes pensados para la ventana
+de un millón de tokens:
+
+| Color | Contexto |
+|---|---|
+| Azul | hasta 15 % |
+| Verde | del 16 al 20 % |
+| Amarillo | del 21 al 25 % |
+| Rojo | 26 % o más, y el número parpadea |
+
 El porcentaje de cada ventana se pinta según el ritmo, es decir, el uso real dividido por el esperado:
 
 | Color | Ritmo | Qué significa |
